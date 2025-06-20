@@ -49,7 +49,6 @@ export default function EquitySimulator() {
   // ベスティング設定
   const [vestingPeriod, setVestingPeriod] = useState([4])
   const [cliffPeriod, setCliffPeriod] = useState([1])
-  const [vestingSchedule, setVestingSchedule] = useState("linear")
   const [yearsElapsed, setYearsElapsed] = useState([4])
 
   // 税制設定
@@ -102,7 +101,6 @@ export default function EquitySimulator() {
     yearsElapsed: number,
     totalVestingYears: number,
     cliffYears: number,
-    schedule: string,
   ) => {
     // クリフ期間中は0
     if (yearsElapsed < cliffYears) {
@@ -116,24 +114,8 @@ export default function EquitySimulator() {
       return totalShares
     }
 
-    switch (schedule) {
-      case "linear":
-        return Math.min(totalShares, (totalShares * yearsAfterCliff) / vestingYearsAfterCliff)
-      case "backloaded":
-        const progress = yearsAfterCliff / vestingYearsAfterCliff
-        return Math.min(totalShares, totalShares * Math.pow(progress, 1.5))
-      case "frontloaded":
-        const frontProgress = yearsAfterCliff / vestingYearsAfterCliff
-        return Math.min(totalShares, totalShares * Math.pow(frontProgress, 0.7))
-      case "cliff-heavy":
-        if (yearsElapsed === cliffYears) {
-          return totalShares * 0.25
-        }
-        const remaining = totalShares * 0.75
-        return totalShares * 0.25 + Math.min(remaining, (remaining * yearsAfterCliff) / vestingYearsAfterCliff)
-      default:
-        return Math.min(totalShares, (totalShares * yearsAfterCliff) / vestingYearsAfterCliff)
-    }
+    // リニア（均等）ベスティングのみ
+    return Math.min(totalShares, (totalShares * yearsAfterCliff) / vestingYearsAfterCliff)
   }
 
   // 税金計算
@@ -195,14 +177,13 @@ export default function EquitySimulator() {
     const futureStockPrice = futureCap / outstanding
 
     // ベスティング計算
-    const vestedShares = calculateVestedShares(granted, elapsed, vestingYears, cliffYears, vestingSchedule)
+    const vestedShares = calculateVestedShares(granted, elapsed, vestingYears, cliffYears)
 
     // ベスティングスケジュール生成
     const vestingScheduleData = []
     for (let year = 1; year <= Math.max(vestingYears, elapsed); year++) {
-      const yearVested = calculateVestedShares(granted, year, vestingYears, cliffYears, vestingSchedule)
-      const prevYearVested =
-        year > 1 ? calculateVestedShares(granted, year - 1, vestingYears, cliffYears, vestingSchedule) : 0
+      const yearVested = calculateVestedShares(granted, year, vestingYears, cliffYears)
+      const prevYearVested = year > 1 ? calculateVestedShares(granted, year - 1, vestingYears, cliffYears) : 0
 
       vestingScheduleData.push({
         year,
@@ -251,21 +232,6 @@ export default function EquitySimulator() {
     })
 
     setIsSimulating(false)
-  }
-
-  const getVestingScheduleDescription = (schedule: string) => {
-    switch (schedule) {
-      case "linear":
-        return "均等に権利確定"
-      case "backloaded":
-        return "後半により多く権利確定"
-      case "frontloaded":
-        return "前半により多く権利確定"
-      case "cliff-heavy":
-        return "クリフ後25%、その後均等"
-      default:
-        return "均等に権利確定"
-    }
   }
 
   return (
@@ -401,22 +367,6 @@ export default function EquitySimulator() {
                     className="mt-2"
                   />
                   <p className="text-xs text-gray-500 mt-1">この期間中は株式の権利確定なし</p>
-                </div>
-
-                <div>
-                  <Label>ベスティングスケジュール</Label>
-                  <Select value={vestingSchedule} onValueChange={setVestingSchedule}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="スケジュールを選択" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="linear">リニア（均等）</SelectItem>
-                      <SelectItem value="backloaded">バックローデッド</SelectItem>
-                      <SelectItem value="frontloaded">フロントローデッド</SelectItem>
-                      <SelectItem value="cliff-heavy">クリフ重視</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-gray-500 mt-1">{getVestingScheduleDescription(vestingSchedule)}</p>
                 </div>
 
                 <div>
@@ -653,7 +603,6 @@ export default function EquitySimulator() {
                       <div className="space-y-1 text-sm">
                         <p>総期間: {vestingPeriod[0]}年</p>
                         <p>クリフ: {cliffPeriod[0]}年</p>
-                        <p>スケジュール: {getVestingScheduleDescription(vestingSchedule)}</p>
                       </div>
                     </CardContent>
                   </Card>
