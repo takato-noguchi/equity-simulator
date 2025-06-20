@@ -1,5 +1,7 @@
 "use client"
 
+import type React from "react"
+
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -70,14 +72,67 @@ export default function EquitySimulator() {
     return new Intl.NumberFormat("ja-JP").format(num)
   }
 
+  const formatNumberWithDecimals = (num: number, decimals = 2) => {
+    return new Intl.NumberFormat("ja-JP", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(num)
+  }
+
+  // 数値入力時にカンマを自動挿入する関数を追加
+  const formatInputNumber = (value: string) => {
+    const numericValue = value.replace(/,/g, "")
+    if (numericValue && !isNaN(Number(numericValue))) {
+      return Number(numericValue).toLocaleString("ja-JP")
+    }
+    return value
+  }
+
+  // 各入力フィールドのonChangeハンドラーを更新
+  const handleOutstandingSharesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawValue = e.target.value.replace(/,/g, "")
+    setOutstandingShares(rawValue)
+  }
+
+  const handleCurrentMarketCapChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawValue = e.target.value.replace(/,/g, "")
+    setCurrentMarketCap(rawValue)
+  }
+
+  const handleFutureMarketCapChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawValue = e.target.value.replace(/,/g, "")
+    setFutureMarketCap(rawValue)
+  }
+
+  const handleGrantedSharesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawValue = e.target.value.replace(/,/g, "")
+    setGrantedShares(rawValue)
+  }
+
+  const handleExercisePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawValue = e.target.value.replace(/,/g, "")
+    setExercisePrice(rawValue)
+  }
+
   // 付与株式数が変更されたときに付与％を自動計算
   useEffect(() => {
+    console.log("計算デバッグ:", { outstandingShares, grantedShares })
+
     if (outstandingShares && grantedShares) {
-      const outstanding = Number.parseInt(outstandingShares)
-      const granted = Number.parseInt(grantedShares)
-      if (outstanding > 0) {
+      const outstanding = Number.parseFloat(outstandingShares.replace(/,/g, ""))
+      const granted = Number.parseFloat(grantedShares.replace(/,/g, ""))
+
+      console.log("パース後の値:", { outstanding, granted })
+
+      if (outstanding > 0 && granted >= 0) {
         const percentage = (granted / outstanding) * 100
-        setGrantedPercentage(percentage.toFixed(4))
+        console.log("計算結果:", {
+          granted,
+          outstanding,
+          division: granted / outstanding,
+          percentage,
+        })
+        setGrantedPercentage(percentage.toFixed(8)) // より精密に表示
       }
     }
   }, [outstandingShares, grantedShares])
@@ -86,7 +141,7 @@ export default function EquitySimulator() {
   const handlePercentageChange = (value: string) => {
     setGrantedPercentage(value)
     if (outstandingShares && value) {
-      const outstanding = Number.parseInt(outstandingShares)
+      const outstanding = Number.parseFloat(outstandingShares.replace(/,/g, ""))
       const percentage = Number.parseFloat(value)
       if (outstanding > 0 && percentage >= 0) {
         const granted = Math.round((outstanding * percentage) / 100)
@@ -272,9 +327,9 @@ export default function EquitySimulator() {
                   <Label htmlFor="outstandingShares">発行済株式総数 (株)</Label>
                   <Input
                     id="outstandingShares"
-                    value={outstandingShares}
-                    onChange={(e) => setOutstandingShares(e.target.value)}
-                    placeholder="10000000"
+                    value={formatInputNumber(outstandingShares)}
+                    onChange={handleOutstandingSharesChange}
+                    placeholder="10,000,000"
                   />
                 </div>
 
@@ -282,9 +337,9 @@ export default function EquitySimulator() {
                   <Label htmlFor="currentMarketCap">現在時価総額 (円)</Label>
                   <Input
                     id="currentMarketCap"
-                    value={currentMarketCap}
-                    onChange={(e) => setCurrentMarketCap(e.target.value)}
-                    placeholder="50000000000"
+                    value={formatInputNumber(currentMarketCap)}
+                    onChange={handleCurrentMarketCapChange}
+                    placeholder="50,000,000,000"
                   />
                 </div>
 
@@ -292,9 +347,9 @@ export default function EquitySimulator() {
                   <Label htmlFor="futureMarketCap">将来時価総額 (円)</Label>
                   <Input
                     id="futureMarketCap"
-                    value={futureMarketCap}
-                    onChange={(e) => setFutureMarketCap(e.target.value)}
-                    placeholder="100000000000"
+                    value={formatInputNumber(futureMarketCap)}
+                    onChange={handleFutureMarketCapChange}
+                    placeholder="100,000,000,000"
                   />
                 </div>
               </div>
@@ -310,9 +365,9 @@ export default function EquitySimulator() {
                   <Label htmlFor="grantedShares">付与株式数 (株)</Label>
                   <Input
                     id="grantedShares"
-                    value={grantedShares}
-                    onChange={(e) => setGrantedShares(e.target.value)}
-                    placeholder="50000"
+                    value={formatInputNumber(grantedShares)}
+                    onChange={handleGrantedSharesChange}
+                    placeholder="50,000"
                   />
                 </div>
 
@@ -320,9 +375,9 @@ export default function EquitySimulator() {
                   <Label htmlFor="exercisePrice">行使価額 (円)</Label>
                   <Input
                     id="exercisePrice"
-                    value={exercisePrice}
-                    onChange={(e) => setExercisePrice(e.target.value)}
-                    placeholder="1000"
+                    value={formatInputNumber(exercisePrice)}
+                    onChange={handleExercisePriceChange}
+                    placeholder="1,000"
                   />
                 </div>
 
@@ -332,8 +387,17 @@ export default function EquitySimulator() {
                     id="grantedPercentage"
                     value={grantedPercentage}
                     onChange={(e) => handlePercentageChange(e.target.value)}
-                    placeholder="0.5000"
+                    placeholder="0.10000000"
                   />
+                  <div className="text-xs text-gray-500 mt-1">
+                    <p>全発行済株式に対する付与株式の割合</p>
+                    {outstandingShares && grantedShares && (
+                      <p className="text-blue-600 font-mono">
+                        計算: {formatInputNumber(grantedShares)} ÷ {formatInputNumber(outstandingShares)} × 100 ={" "}
+                        {grantedPercentage}%
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
 
