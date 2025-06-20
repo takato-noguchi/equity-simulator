@@ -1,47 +1,61 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Calculator, TrendingUp, DollarSign, Calendar, Clock, BarChart3 } from "lucide-react"
+import { Calculator, TrendingUp, DollarSign, Percent, Building2, Clock, BarChart3, Receipt } from "lucide-react"
+import {} from "recharts"
+import {} from "@/components/ui/chart"
 
 interface SimulationResult {
-  totalValue: number
-  yearlyBreakdown: {
+  currentStockPrice: number
+  futureStockPrice: number
+  currentReturn: number
+  futureReturn: number
+  grantedPercentage: number
+  totalCurrentValue: number
+  totalFutureValue: number
+  exerciseCost: number
+  netCurrentReturn: number
+  netFutureReturn: number
+  vestedShares: number
+  vestingSchedule: {
     year: number
-    salary: number
-    stockValue: number
     vestedShares: number
     cumulativeVestedShares: number
-    totalAnnual: number
     isCliffPeriod: boolean
   }[]
-  finalStockValue: number
-  totalStockGain: number
-  grantedShares: number
-  expectedReturn: number
-  currentMarketCap: number
-  futureMarketCap: number
-  vestingSchedule: string
-  cliffPeriod: number
+  taxCalculation: {
+    exerciseTax: number
+    saleTax: number
+    totalTax: number
+    netReturnAfterTax: number
+    taxRate: number
+  }
 }
 
 export default function EquitySimulator() {
-  const [baseSalary, setBaseSalary] = useState("6000000")
-  const [stockCompensation, setStockCompensation] = useState("1000000")
-  const [jobType, setJobType] = useState("")
-  const [experience, setExperience] = useState("")
-  const [stockSystem, setStockSystem] = useState("")
-  const [currentStockPrice, setCurrentStockPrice] = useState([5000])
-  const [growthRate, setGrowthRate] = useState([20])
+  const [outstandingShares, setOutstandingShares] = useState("10000000")
+  const [currentMarketCap, setCurrentMarketCap] = useState("50000000000")
+  const [futureMarketCap, setFutureMarketCap] = useState("100000000000")
+  const [grantedShares, setGrantedShares] = useState("50000")
+  const [exercisePrice, setExercisePrice] = useState("1000")
+  const [grantedPercentage, setGrantedPercentage] = useState("")
+
+  // ベスティング設定
   const [vestingPeriod, setVestingPeriod] = useState([4])
-  const [cliffPeriod, setCliffPeriod] = useState([12]) // 月単位
+  const [cliffPeriod, setCliffPeriod] = useState([1])
   const [vestingSchedule, setVestingSchedule] = useState("linear")
-  const [vestingFrequency, setVestingFrequency] = useState("monthly")
+  const [yearsElapsed, setYearsElapsed] = useState([4])
+
+  // 税制設定
+  const [isTaxQualified, setIsTaxQualified] = useState("qualified")
+  const [holdingPeriod, setHoldingPeriod] = useState([2])
+
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null)
   const [isSimulating, setIsSimulating] = useState(false)
 
@@ -53,139 +67,187 @@ export default function EquitySimulator() {
     }).format(amount)
   }
 
+  const formatNumber = (num: number) => {
+    return new Intl.NumberFormat("ja-JP").format(num)
+  }
+
+  // 付与株式数が変更されたときに付与％を自動計算
+  useEffect(() => {
+    if (outstandingShares && grantedShares) {
+      const outstanding = Number.parseInt(outstandingShares)
+      const granted = Number.parseInt(grantedShares)
+      if (outstanding > 0) {
+        const percentage = (granted / outstanding) * 100
+        setGrantedPercentage(percentage.toFixed(4))
+      }
+    }
+  }, [outstandingShares, grantedShares])
+
+  // 付与％が変更されたときに付与株式数を自動計算
+  const handlePercentageChange = (value: string) => {
+    setGrantedPercentage(value)
+    if (outstandingShares && value) {
+      const outstanding = Number.parseInt(outstandingShares)
+      const percentage = Number.parseFloat(value)
+      if (outstanding > 0 && percentage >= 0) {
+        const granted = Math.round((outstanding * percentage) / 100)
+        setGrantedShares(granted.toString())
+      }
+    }
+  }
+
+  // ベスティング計算
   const calculateVestedShares = (
     totalShares: number,
-    monthsElapsed: number,
-    totalVestingMonths: number,
-    cliffMonths: number,
+    yearsElapsed: number,
+    totalVestingYears: number,
+    cliffYears: number,
     schedule: string,
   ) => {
     // クリフ期間中は0
-    if (monthsElapsed < cliffMonths) {
+    if (yearsElapsed < cliffYears) {
       return 0
     }
 
-    const monthsAfterCliff = monthsElapsed - cliffMonths
-    const vestingMonthsAfterCliff = totalVestingMonths - cliffMonths
+    const yearsAfterCliff = yearsElapsed - cliffYears
+    const vestingYearsAfterCliff = totalVestingYears - cliffYears
+
+    if (vestingYearsAfterCliff <= 0) {
+      return totalShares
+    }
 
     switch (schedule) {
       case "linear":
-        // リニアベスティング：均等に権利確定
-        return Math.min(totalShares, (totalShares * monthsAfterCliff) / vestingMonthsAfterCliff)
-
+        return Math.min(totalShares, (totalShares * yearsAfterCliff) / vestingYearsAfterCliff)
       case "backloaded":
-        // バックローデッド：後半により多く権利確定
-        const progress = monthsAfterCliff / vestingMonthsAfterCliff
+        const progress = yearsAfterCliff / vestingYearsAfterCliff
         return Math.min(totalShares, totalShares * Math.pow(progress, 1.5))
-
       case "frontloaded":
-        // フロントローデッド：前半により多く権利確定
-        const frontProgress = monthsAfterCliff / vestingMonthsAfterCliff
+        const frontProgress = yearsAfterCliff / vestingYearsAfterCliff
         return Math.min(totalShares, totalShares * Math.pow(frontProgress, 0.7))
-
       case "cliff-heavy":
-        // クリフ後に大きな割合、その後リニア
-        if (monthsElapsed === cliffMonths) {
-          return totalShares * 0.25 // クリフ後に25%
+        if (yearsElapsed === cliffYears) {
+          return totalShares * 0.25
         }
         const remaining = totalShares * 0.75
-        return totalShares * 0.25 + Math.min(remaining, (remaining * monthsAfterCliff) / vestingMonthsAfterCliff)
-
+        return totalShares * 0.25 + Math.min(remaining, (remaining * yearsAfterCliff) / vestingYearsAfterCliff)
       default:
-        return Math.min(totalShares, (totalShares * monthsAfterCliff) / vestingMonthsAfterCliff)
+        return Math.min(totalShares, (totalShares * yearsAfterCliff) / vestingYearsAfterCliff)
+    }
+  }
+
+  // 税金計算
+  const calculateTax = (exerciseGain: number, saleGain: number, isQualified: boolean, holdingYears: number) => {
+    let exerciseTax = 0
+    let saleTax = 0
+    let totalTax = 0
+    let taxRate = 0
+
+    if (isQualified) {
+      // 税制適格ストックオプション
+      if (holdingYears >= 2) {
+        // 2年以上保有：譲渡所得として20.315%
+        saleTax = (exerciseGain + saleGain) * 0.20315
+        taxRate = 20.315
+      } else {
+        // 2年未満：給与所得として累進課税（簡易計算で30%と仮定）
+        exerciseTax = exerciseGain * 0.3
+        saleTax = saleGain * 0.20315
+        taxRate = 30
+      }
+    } else {
+      // 税制非適格ストックオプション
+      // 行使時：給与所得として累進課税
+      exerciseTax = exerciseGain * 0.3 // 簡易計算
+      // 売却時：譲渡所得として20.315%
+      saleTax = saleGain * 0.20315
+      taxRate = 30
+    }
+
+    totalTax = exerciseTax + saleTax
+    const netReturnAfterTax = exerciseGain + saleGain - totalTax
+
+    return {
+      exerciseTax,
+      saleTax,
+      totalTax,
+      netReturnAfterTax,
+      taxRate,
     }
   }
 
   const executeSimulation = async () => {
     setIsSimulating(true)
 
-    // シミュレーション実行のアニメーション
-    await new Promise((resolve) => setTimeout(resolve, 1500))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
-    const salary = Number.parseInt(baseSalary)
-    const stockComp = Number.parseInt(stockCompensation)
-    const initialPrice = currentStockPrice[0]
-    const annualGrowth = growthRate[0] / 100
-    const years = vestingPeriod[0]
-    const cliffMonths = cliffPeriod[0]
+    const outstanding = Number.parseInt(outstandingShares)
+    const currentCap = Number.parseInt(currentMarketCap)
+    const futureCap = Number.parseInt(futureMarketCap)
+    const granted = Number.parseInt(grantedShares)
+    const exercise = Number.parseInt(exercisePrice)
+    const elapsed = yearsElapsed[0]
+    const vestingYears = vestingPeriod[0]
+    const cliffYears = cliffPeriod[0]
 
-    // 株式数を計算（初期株式報酬額 ÷ 現在の株価）
-    const totalShares = stockComp / initialPrice
-    const totalVestingMonths = years * 12
+    // 株価計算
+    const currentStockPrice = currentCap / outstanding
+    const futureStockPrice = futureCap / outstanding
 
-    const yearlyBreakdown = []
-    let totalValue = 0
+    // ベスティング計算
+    const vestedShares = calculateVestedShares(granted, elapsed, vestingYears, cliffYears, vestingSchedule)
 
-    for (let year = 1; year <= years; year++) {
-      const monthsElapsed = year * 12
-      const stockPriceAtYear = initialPrice * Math.pow(1 + annualGrowth, year)
+    // ベスティングスケジュール生成
+    const vestingScheduleData = []
+    for (let year = 1; year <= Math.max(vestingYears, elapsed); year++) {
+      const yearVested = calculateVestedShares(granted, year, vestingYears, cliffYears, vestingSchedule)
+      const prevYearVested =
+        year > 1 ? calculateVestedShares(granted, year - 1, vestingYears, cliffYears, vestingSchedule) : 0
 
-      const vestedShares = calculateVestedShares(
-        totalShares,
-        monthsElapsed,
-        totalVestingMonths,
-        cliffMonths,
-        vestingSchedule,
-      )
-
-      const previousYearVestedShares =
-        year > 1
-          ? calculateVestedShares(totalShares, (year - 1) * 12, totalVestingMonths, cliffMonths, vestingSchedule)
-          : 0
-
-      const newlyVestedShares = vestedShares - previousYearVestedShares
-      const stockValue = newlyVestedShares * stockPriceAtYear
-      const isCliffPeriod = monthsElapsed <= cliffMonths
-
-      yearlyBreakdown.push({
+      vestingScheduleData.push({
         year,
-        salary,
-        stockValue,
-        vestedShares: newlyVestedShares,
-        cumulativeVestedShares: vestedShares,
-        totalAnnual: salary + stockValue,
-        isCliffPeriod,
+        vestedShares: yearVested - prevYearVested,
+        cumulativeVestedShares: yearVested,
+        isCliffPeriod: year <= cliffYears,
       })
-
-      totalValue += salary + stockValue
     }
 
-    const finalStockPrice = initialPrice * Math.pow(1 + annualGrowth, years)
-    const finalVestedShares = calculateVestedShares(
-      totalShares,
-      totalVestingMonths,
-      totalVestingMonths,
-      cliffMonths,
-      vestingSchedule,
-    )
-    const finalStockValue = finalVestedShares * finalStockPrice
-    const totalStockGain = finalStockValue - (finalVestedShares / totalShares) * stockComp
+    // リターン計算（権利確定済み株式のみ）
+    const currentReturn = Math.max(0, currentStockPrice - exercise) * vestedShares
+    const futureReturn = Math.max(0, futureStockPrice - exercise) * vestedShares
 
-    // 新しい計算を追加
-    const grantedShares = totalShares
-    const expectedReturn =
-      finalVestedShares > 0
-        ? ((finalStockValue - (finalVestedShares / totalShares) * stockComp) /
-            ((finalVestedShares / totalShares) * stockComp)) *
-          100
-        : 0
+    // 付与％計算
+    const grantedPercentageCalc = (granted / outstanding) * 100
 
-    // 仮定：発行済み株式数（実際の企業では実際の値を使用）
-    const totalOutstandingShares = 10000000 // 1000万株と仮定
-    const currentMarketCap = initialPrice * totalOutstandingShares
-    const futureMarketCap = finalStockPrice * totalOutstandingShares
+    // 総価値計算
+    const totalCurrentValue = currentStockPrice * vestedShares
+    const totalFutureValue = futureStockPrice * vestedShares
+
+    // 行使コスト
+    const exerciseCost = exercise * vestedShares
+
+    // 税金計算
+    const exerciseGain = Math.max(0, currentStockPrice - exercise) * vestedShares
+    const saleGain = Math.max(0, futureStockPrice - currentStockPrice) * vestedShares
+    const isQualified = isTaxQualified === "qualified"
+    const holdingYears = holdingPeriod[0]
+
+    const taxCalculation = calculateTax(exerciseGain, saleGain, isQualified, holdingYears)
 
     setSimulationResult({
-      totalValue,
-      yearlyBreakdown,
-      finalStockValue,
-      totalStockGain,
-      grantedShares,
-      expectedReturn,
-      currentMarketCap,
-      futureMarketCap,
-      vestingSchedule,
-      cliffPeriod: cliffMonths,
+      currentStockPrice,
+      futureStockPrice,
+      currentReturn,
+      futureReturn,
+      grantedPercentage: grantedPercentageCalc,
+      totalCurrentValue,
+      totalFutureValue,
+      exerciseCost,
+      netCurrentReturn: currentReturn,
+      netFutureReturn: futureReturn,
+      vestedShares,
+      vestingSchedule: vestingScheduleData,
+      taxCalculation,
     })
 
     setIsSimulating(false)
@@ -208,10 +270,18 @@ export default function EquitySimulator() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">エクイティシミュレーター</h1>
-          <p className="text-gray-600">株式報酬の将来価値をシミュレーション</p>
+      <div className="max-w-7xl mx-auto">
+        {/* ヘッダー部分 */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-4">
+              <img src="/rezon-logo.jpeg" alt="REZON" className="h-12 w-auto" />
+            </div>
+          </div>
+          <div className="text-center">
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">エクイティリターンシミュレーター</h1>
+            <p className="text-gray-600">ベスティング・税制を考慮した株式報酬リターンを算出</p>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -222,85 +292,116 @@ export default function EquitySimulator() {
                 <Calculator className="w-5 h-5 text-blue-600" />
                 条件設定
               </CardTitle>
-              <p className="text-sm text-gray-600">あなたの情報を入力してください</p>
+              <p className="text-sm text-gray-600">企業情報と付与条件を入力してください</p>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
+              {/* 企業情報 */}
+              <div className="space-y-4 p-4 bg-white rounded-lg border">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <Building2 className="w-4 h-4" />
+                  企業情報
+                </h3>
+
                 <div>
-                  <Label htmlFor="baseSalary">基本年収 (円)</Label>
+                  <Label htmlFor="outstandingShares">発行済株式総数 (株)</Label>
                   <Input
-                    id="baseSalary"
-                    value={baseSalary}
-                    onChange={(e) => setBaseSalary(e.target.value)}
-                    placeholder="6000000"
+                    id="outstandingShares"
+                    value={outstandingShares}
+                    onChange={(e) => setOutstandingShares(e.target.value)}
+                    placeholder="10000000"
                   />
                 </div>
+
                 <div>
-                  <Label htmlFor="stockCompensation">株式報酬予定額 (円)</Label>
+                  <Label htmlFor="currentMarketCap">現在時価総額 (円)</Label>
                   <Input
-                    id="stockCompensation"
-                    value={stockCompensation}
-                    onChange={(e) => setStockCompensation(e.target.value)}
-                    placeholder="1000000"
+                    id="currentMarketCap"
+                    value={currentMarketCap}
+                    onChange={(e) => setCurrentMarketCap(e.target.value)}
+                    placeholder="50000000000"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="futureMarketCap">将来時価総額 (円)</Label>
+                  <Input
+                    id="futureMarketCap"
+                    value={futureMarketCap}
+                    onChange={(e) => setFutureMarketCap(e.target.value)}
+                    placeholder="100000000000"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>職種</Label>
-                  <Select value={jobType} onValueChange={setJobType}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="職種を選択" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="engineer">エンジニア</SelectItem>
-                      <SelectItem value="designer">デザイナー</SelectItem>
-                      <SelectItem value="pm">プロダクトマネージャー</SelectItem>
-                      <SelectItem value="sales">営業</SelectItem>
-                      <SelectItem value="marketing">マーケティング</SelectItem>
-                      <SelectItem value="other">その他</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label>経験年数</Label>
-                  <Select value={experience} onValueChange={setExperience}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="経験年数を選択" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1-2">1-2年</SelectItem>
-                      <SelectItem value="3-5">3-5年</SelectItem>
-                      <SelectItem value="6-10">6-10年</SelectItem>
-                      <SelectItem value="10+">10年以上</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+              {/* 付与条件 */}
+              <div className="space-y-4 p-4 bg-white rounded-lg border">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <Percent className="w-4 h-4" />
+                  付与条件
+                </h3>
 
-              <div>
-                <Label>株式報酬制度</Label>
-                <Select value={stockSystem} onValueChange={setStockSystem}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="制度を選択" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="stock-options">ストックオプション</SelectItem>
-                    <SelectItem value="restricted-stock">制限付株式</SelectItem>
-                    <SelectItem value="rsu">RSU (制限付株式ユニット)</SelectItem>
-                    <SelectItem value="espp">従業員株式購入プラン</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-gray-500 mt-1">制限付株式ユニット - 権利確定時に選択可能</p>
+                <div>
+                  <Label htmlFor="grantedShares">付与株式数 (株)</Label>
+                  <Input
+                    id="grantedShares"
+                    value={grantedShares}
+                    onChange={(e) => setGrantedShares(e.target.value)}
+                    placeholder="50000"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="exercisePrice">行使価額 (円)</Label>
+                  <Input
+                    id="exercisePrice"
+                    value={exercisePrice}
+                    onChange={(e) => setExercisePrice(e.target.value)}
+                    placeholder="1000"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="grantedPercentage">付与％</Label>
+                  <Input
+                    id="grantedPercentage"
+                    value={grantedPercentage}
+                    onChange={(e) => handlePercentageChange(e.target.value)}
+                    placeholder="0.5000"
+                  />
+                </div>
               </div>
 
               {/* ベスティング設定 */}
               <div className="space-y-4 p-4 bg-white rounded-lg border">
                 <h3 className="font-semibold flex items-center gap-2">
-                  <BarChart3 className="w-4 h-4" />
+                  <Clock className="w-4 h-4" />
                   ベスティング設定
                 </h3>
+
+                <div>
+                  <Label>ベスティング期間: {vestingPeriod[0]}年</Label>
+                  <Slider
+                    value={vestingPeriod}
+                    onValueChange={setVestingPeriod}
+                    max={6}
+                    min={1}
+                    step={1}
+                    className="mt-2"
+                  />
+                </div>
+
+                <div>
+                  <Label>クリフ期間: {cliffPeriod[0]}年</Label>
+                  <Slider
+                    value={cliffPeriod}
+                    onValueChange={setCliffPeriod}
+                    max={3}
+                    min={0}
+                    step={1}
+                    className="mt-2"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">この期間中は株式の権利確定なし</p>
+                </div>
 
                 <div>
                   <Label>ベスティングスケジュール</Label>
@@ -319,61 +420,53 @@ export default function EquitySimulator() {
                 </div>
 
                 <div>
-                  <Label>クリフ期間: {cliffPeriod[0]}ヶ月</Label>
+                  <Label>経過年数: {yearsElapsed[0]}年</Label>
                   <Slider
-                    value={cliffPeriod}
-                    onValueChange={setCliffPeriod}
-                    max={24}
+                    value={yearsElapsed}
+                    onValueChange={setYearsElapsed}
+                    max={8}
                     min={0}
-                    step={3}
-                    className="mt-2"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">この期間中は株式の権利確定なし</p>
-                </div>
-
-                <div>
-                  <Label>ベスティング頻度</Label>
-                  <Select value={vestingFrequency} onValueChange={setVestingFrequency}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="頻度を選択" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="monthly">月次</SelectItem>
-                      <SelectItem value="quarterly">四半期</SelectItem>
-                      <SelectItem value="annually">年次</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <Label>現在の株価: {formatCurrency(currentStockPrice[0])}</Label>
-                  <Slider
-                    value={currentStockPrice}
-                    onValueChange={setCurrentStockPrice}
-                    max={20000}
-                    min={1000}
-                    step={500}
-                    className="mt-2"
-                  />
-                </div>
-
-                <div>
-                  <Label>期待年間成長率: {growthRate[0]}%</Label>
-                  <Slider value={growthRate} onValueChange={setGrowthRate} max={50} min={0} step={5} className="mt-2" />
-                </div>
-
-                <div>
-                  <Label>権利確定期間: {vestingPeriod[0]}年</Label>
-                  <Slider
-                    value={vestingPeriod}
-                    onValueChange={setVestingPeriod}
-                    max={6}
-                    min={1}
                     step={1}
                     className="mt-2"
                   />
+                  <p className="text-xs text-gray-500 mt-1">現在までの経過年数</p>
+                </div>
+              </div>
+
+              {/* 税制設定 */}
+              <div className="space-y-4 p-4 bg-white rounded-lg border">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <Receipt className="w-4 h-4" />
+                  税制設定
+                </h3>
+
+                <div>
+                  <Label>ストックオプション種類</Label>
+                  <Select value={isTaxQualified} onValueChange={setIsTaxQualified}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="種類を選択" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="qualified">税制適格</SelectItem>
+                      <SelectItem value="non-qualified">税制非適格</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {isTaxQualified === "qualified" ? "2年以上保有で譲渡所得扱い" : "行使時に給与所得として課税"}
+                  </p>
+                </div>
+
+                <div>
+                  <Label>保有期間: {holdingPeriod[0]}年</Label>
+                  <Slider
+                    value={holdingPeriod}
+                    onValueChange={setHoldingPeriod}
+                    max={5}
+                    min={0}
+                    step={1}
+                    className="mt-2"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">行使から売却までの期間</p>
                 </div>
               </div>
 
@@ -384,7 +477,7 @@ export default function EquitySimulator() {
                 disabled={isSimulating}
               >
                 <Calculator className="w-4 h-4 mr-2" />
-                {isSimulating ? "シミュレーション実行中..." : "シミュレーション実行"}
+                {isSimulating ? "計算中..." : "リターンを計算"}
               </Button>
             </CardContent>
           </Card>
@@ -394,7 +487,7 @@ export default function EquitySimulator() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <TrendingUp className="w-5 h-5 text-green-600" />
-                {simulationResult ? "シミュレーション結果" : "シミュレーション待機中"}
+                {simulationResult ? "計算結果" : "計算待機中"}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -402,7 +495,7 @@ export default function EquitySimulator() {
                 <div className="flex flex-col items-center justify-center h-96 text-gray-500">
                   <Calculator className="w-16 h-16 mb-4 text-gray-300" />
                   <p className="text-center">
-                    左側で条件を設定してシミュレーション実行を
+                    左側で条件を設定してリターンを計算を
                     <br />
                     クリックしてください
                   </p>
@@ -423,147 +516,95 @@ export default function EquitySimulator() {
                     <CardContent className="p-4">
                       <div className="flex items-center gap-2 mb-2">
                         <Clock className="w-4 h-4 text-yellow-600" />
-                        <span className="text-sm font-medium text-yellow-800">ベスティング条件</span>
+                        <span className="text-sm font-medium text-yellow-800">ベスティング状況</span>
                       </div>
                       <div className="text-sm text-yellow-900">
-                        <p>スケジュール: {getVestingScheduleDescription(simulationResult.vestingSchedule)}</p>
-                        <p>クリフ期間: {simulationResult.cliffPeriod}ヶ月</p>
+                        <p>
+                          権利確定済み: {formatNumber(simulationResult.vestedShares)}株 /{" "}
+                          {formatNumber(Number.parseInt(grantedShares))}株
+                        </p>
+                        <p>
+                          権利確定率:{" "}
+                          {((simulationResult.vestedShares / Number.parseInt(grantedShares)) * 100).toFixed(1)}%
+                        </p>
                       </div>
                     </CardContent>
                   </Card>
 
-                  {/* サマリーカード */}
+                  {/* メインリターン表示 */}
                   <div className="grid grid-cols-2 gap-4">
-                    <Card className="bg-green-50">
-                      <CardContent className="p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <DollarSign className="w-4 h-4 text-green-600" />
-                          <span className="text-sm font-medium text-green-800">総収入</span>
-                        </div>
-                        <p className="text-2xl font-bold text-green-900">
-                          {formatCurrency(simulationResult.totalValue)}
-                        </p>
-                      </CardContent>
-                    </Card>
                     <Card className="bg-blue-50">
                       <CardContent className="p-4">
                         <div className="flex items-center gap-2 mb-2">
-                          <TrendingUp className="w-4 h-4 text-blue-600" />
-                          <span className="text-sm font-medium text-blue-800">株式利益</span>
+                          <DollarSign className="w-4 h-4 text-blue-600" />
+                          <span className="text-sm font-medium text-blue-800">現在リターン</span>
                         </div>
                         <p className="text-2xl font-bold text-blue-900">
-                          {formatCurrency(simulationResult.totalStockGain)}
+                          {formatCurrency(simulationResult.currentReturn)}
                         </p>
+                        <p className="text-xs text-blue-700 mt-1">権利確定済み株式での利益</p>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-green-50">
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <TrendingUp className="w-4 h-4 text-green-600" />
+                          <span className="text-sm font-medium text-green-800">将来リターン</span>
+                        </div>
+                        <p className="text-2xl font-bold text-green-900">
+                          {formatCurrency(simulationResult.futureReturn)}
+                        </p>
+                        <p className="text-xs text-green-700 mt-1">将来時価総額での利益</p>
                       </CardContent>
                     </Card>
                   </div>
 
-                  {/* 詳細情報カード */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <Card className="bg-orange-50">
-                      <CardContent className="p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <TrendingUp className="w-4 h-4 text-orange-600" />
-                          <span className="text-sm font-medium text-orange-800">付与株式数</span>
-                        </div>
-                        <p className="text-2xl font-bold text-orange-900">
-                          {Math.round(simulationResult.grantedShares).toLocaleString()}株
-                        </p>
-                      </CardContent>
-                    </Card>
-                    <Card className="bg-purple-50">
-                      <CardContent className="p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Calculator className="w-4 h-4 text-purple-600" />
-                          <span className="text-sm font-medium text-purple-800">想定リターン</span>
-                        </div>
-                        <p className="text-2xl font-bold text-purple-900">
-                          {simulationResult.expectedReturn.toFixed(1)}%
-                        </p>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  {/* 時価総額情報 */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <Card className="bg-gray-50">
-                      <CardContent className="p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <DollarSign className="w-4 h-4 text-gray-600" />
-                          <span className="text-sm font-medium text-gray-800">現在時価総額</span>
-                        </div>
-                        <p className="text-2xl font-bold text-gray-900">
-                          {formatCurrency(simulationResult.currentMarketCap)}
-                        </p>
-                        <p className="text-sm text-gray-600 mt-1">現在の株価基準</p>
-                      </CardContent>
-                    </Card>
-                    <Card className="bg-indigo-50">
-                      <CardContent className="p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <TrendingUp className="w-4 h-4 text-indigo-600" />
-                          <span className="text-sm font-medium text-indigo-800">将来時価総額</span>
-                        </div>
-                        <p className="text-2xl font-bold text-indigo-900">
-                          {formatCurrency(simulationResult.futureMarketCap)}
-                        </p>
-                        <p className="text-sm text-gray-600 mt-1">{vestingPeriod[0]}年後予想</p>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  {/* 年次詳細 */}
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                      <Calendar className="w-5 h-5" />
-                      年次詳細
-                    </h3>
-                    <div className="space-y-3">
-                      {simulationResult.yearlyBreakdown.map((year) => (
-                        <Card
-                          key={year.year}
-                          className={`border-l-4 ${
-                            year.isCliffPeriod ? "border-l-red-500 bg-red-50" : "border-l-blue-500"
-                          }`}
-                        >
-                          <CardContent className="p-4">
-                            <div className="flex justify-between items-center mb-2">
-                              <div className="flex items-center gap-2">
-                                <span className="font-semibold">{year.year}年目</span>
-                                {year.isCliffPeriod && (
-                                  <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded">クリフ期間</span>
-                                )}
-                              </div>
-                              <span className="text-lg font-bold">{formatCurrency(year.totalAnnual)}</span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
-                              <div>
-                                <span>基本給: {formatCurrency(year.salary)}</span>
-                              </div>
-                              <div>
-                                <span>株式価値: {formatCurrency(year.stockValue)}</span>
-                              </div>
-                              <div>
-                                <span>新規権利確定: {Math.round(year.vestedShares).toLocaleString()}株</span>
-                              </div>
-                              <div>
-                                <span>累積権利確定: {Math.round(year.cumulativeVestedShares).toLocaleString()}株</span>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* 最終株式価値 */}
-                  <Card className="bg-gradient-to-r from-purple-50 to-pink-50">
+                  {/* 税金計算結果 */}
+                  <Card className="bg-red-50">
                     <CardContent className="p-4">
-                      <h4 className="font-semibold mb-2">最終株式価値</h4>
-                      <p className="text-2xl font-bold text-purple-900">
-                        {formatCurrency(simulationResult.finalStockValue)}
-                      </p>
-                      <p className="text-sm text-gray-600 mt-1">{vestingPeriod[0]}年後の予想株式価値</p>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Receipt className="w-4 h-4 text-red-600" />
+                        <span className="text-sm font-medium text-red-800">税金計算</span>
+                      </div>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span>行使時税金:</span>
+                          <span className="font-medium">
+                            {formatCurrency(simulationResult.taxCalculation.exerciseTax)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>売却時税金:</span>
+                          <span className="font-medium">{formatCurrency(simulationResult.taxCalculation.saleTax)}</span>
+                        </div>
+                        <div className="flex justify-between border-t pt-2">
+                          <span className="font-semibold">総税額:</span>
+                          <span className="font-bold">{formatCurrency(simulationResult.taxCalculation.totalTax)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="font-semibold text-green-700">税引後利益:</span>
+                          <span className="font-bold text-green-700">
+                            {formatCurrency(simulationResult.taxCalculation.netReturnAfterTax)}
+                          </span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* 株価情報 */}
+                  <Card className="bg-gray-50">
+                    <CardContent className="p-4">
+                      <h4 className="font-semibold mb-3">株価情報</h4>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-gray-600">現在の株価:</span>
+                          <p className="font-bold text-lg">{formatCurrency(simulationResult.currentStockPrice)}</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">将来の株価:</span>
+                          <p className="font-bold text-lg">{formatCurrency(simulationResult.futureStockPrice)}</p>
+                        </div>
+                      </div>
                     </CardContent>
                   </Card>
                 </div>
@@ -571,6 +612,162 @@ export default function EquitySimulator() {
             </CardContent>
           </Card>
         </div>
+
+        {/* ベスティングスケジュール表示 */}
+        {simulationResult && (
+          <div className="mt-8">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-blue-600" />
+                  ベスティングスケジュール
+                </CardTitle>
+                <p className="text-sm text-gray-600">権利確定の推移とクリフ期間の詳細</p>
+              </CardHeader>
+              <CardContent>
+                {/* ベスティング詳細情報 */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <Card className="bg-yellow-50">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Clock className="w-4 h-4 text-yellow-600" />
+                        <span className="text-sm font-medium">現在の状況</span>
+                      </div>
+                      <div className="space-y-1 text-sm">
+                        <p>経過年数: {yearsElapsed[0]}年</p>
+                        <p>権利確定済み: {formatNumber(simulationResult.vestedShares)}株</p>
+                        <p>
+                          権利確定率:{" "}
+                          {((simulationResult.vestedShares / Number.parseInt(grantedShares)) * 100).toFixed(1)}%
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-orange-50">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <BarChart3 className="w-4 h-4 text-orange-600" />
+                        <span className="text-sm font-medium">ベスティング設定</span>
+                      </div>
+                      <div className="space-y-1 text-sm">
+                        <p>総期間: {vestingPeriod[0]}年</p>
+                        <p>クリフ: {cliffPeriod[0]}年</p>
+                        <p>スケジュール: {getVestingScheduleDescription(vestingSchedule)}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-purple-50">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <TrendingUp className="w-4 h-4 text-purple-600" />
+                        <span className="text-sm font-medium">将来予測</span>
+                      </div>
+                      <div className="space-y-1 text-sm">
+                        <p>最終権利確定: {formatNumber(Number.parseInt(grantedShares))}株</p>
+                        <p>残り期間: {Math.max(0, vestingPeriod[0] - yearsElapsed[0])}年</p>
+                        <p>
+                          残り権利確定: {formatNumber(Number.parseInt(grantedShares) - simulationResult.vestedShares)}株
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* 年次詳細テーブル */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">年次詳細</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left p-3">年</th>
+                            <th className="text-right p-3">新規権利確定</th>
+                            <th className="text-right p-3">累積権利確定</th>
+                            <th className="text-right p-3">権利確定率</th>
+                            <th className="text-center p-3">状態</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {simulationResult.vestingSchedule.map((year) => (
+                            <tr
+                              key={year.year}
+                              className={`border-b hover:bg-gray-50 ${
+                                year.year === yearsElapsed[0] ? "bg-blue-50 font-semibold" : ""
+                              }`}
+                            >
+                              <td className="p-3">
+                                <div className="flex items-center gap-2">
+                                  {year.year}年目
+                                  {year.year === yearsElapsed[0] && (
+                                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">現在</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="text-right p-3">
+                                <span className="font-mono">{formatNumber(year.vestedShares)}株</span>
+                              </td>
+                              <td className="text-right p-3">
+                                <span className="font-mono">{formatNumber(year.cumulativeVestedShares)}株</span>
+                              </td>
+                              <td className="text-right p-3">
+                                <span className="font-mono">
+                                  {((year.cumulativeVestedShares / Number.parseInt(grantedShares)) * 100).toFixed(1)}%
+                                </span>
+                              </td>
+                              <td className="text-center p-3">
+                                {year.isCliffPeriod ? (
+                                  <span className="text-xs bg-red-100 text-red-800 px-3 py-1 rounded-full">
+                                    クリフ期間
+                                  </span>
+                                ) : (
+                                  <span className="text-xs bg-green-100 text-green-800 px-3 py-1 rounded-full">
+                                    権利確定
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* 進捗バー表示 */}
+                <div className="mt-6">
+                  <Card className="bg-gradient-to-r from-blue-50 to-green-50">
+                    <CardContent className="p-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="font-semibold">権利確定進捗</h4>
+                        <span className="text-sm text-gray-600">
+                          {((simulationResult.vestedShares / Number.parseInt(grantedShares)) * 100).toFixed(1)}% 完了
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-4 mb-4">
+                        <div
+                          className="bg-gradient-to-r from-blue-500 to-green-500 h-4 rounded-full transition-all duration-500"
+                          style={{
+                            width: `${(simulationResult.vestedShares / Number.parseInt(grantedShares)) * 100}%`,
+                          }}
+                        ></div>
+                      </div>
+                      <div className="flex justify-between text-sm text-gray-600">
+                        <span>0株</span>
+                        <span className="font-medium">現在: {formatNumber(simulationResult.vestedShares)}株</span>
+                        <span>{formatNumber(Number.parseInt(grantedShares))}株</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
     </div>
   )
