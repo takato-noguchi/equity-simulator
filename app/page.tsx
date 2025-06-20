@@ -245,7 +245,7 @@ export default function EquitySimulator() {
             </div>
           </div>
           <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">エクイティリターンシミュレーター</h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">株式報酬リターンシミュレーター</h1>
             <p className="text-gray-600">ベスティング・税制を考慮した株式報酬リターンを算出</p>
           </div>
         </div>
